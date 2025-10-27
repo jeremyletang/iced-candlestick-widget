@@ -128,7 +128,8 @@ impl App {
         let end = self.candles.len() - self.pan_offset;
         let start = end.saturating_sub(self.visible_candles);
         let visible = self.candles[start..end].to_vec();
-        self.chart = Some(CandlestickChart::new(visible));
+        let interval_minutes = self.selected_interval.to_minutes();
+        self.chart = Some(CandlestickChart::new(visible, interval_minutes));
     }
 
     fn view(&self) -> Element<Message> {

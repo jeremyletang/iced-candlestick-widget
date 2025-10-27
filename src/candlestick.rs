@@ -42,11 +42,12 @@ impl Candle {
 /// Candlestick chart widget
 pub struct CandlestickChart {
     candles: Vec<Candle>,
+    interval_minutes: i64, // Interval in minutes (1, 5, 15, 60, 240, 1440)
 }
 
 impl CandlestickChart {
-    pub fn new(candles: Vec<Candle>) -> Self {
-        Self { candles }
+    pub fn new(candles: Vec<Candle>, interval_minutes: i64) -> Self {
+        Self { candles, interval_minutes }
     }
 
     pub fn view(&self) -> Element<'_, ChartMessage> {
@@ -201,7 +202,7 @@ impl canvas::Program<ChartMessage> for CandlestickChart {
             frame.fill_text(price_text);
         }
 
-        // Draw X-axis labels (candle indices)
+        // Draw X-axis labels with adaptive formatting
         let num_x_labels = 5.min(self.candles.len());
         let step = if num_x_labels > 1 {
             self.candles.len() / (num_x_labels - 1)
@@ -209,16 +210,41 @@ impl canvas::Program<ChartMessage> for CandlestickChart {
             1
         };
 
+        // Determine date format based on zoom level and interval
+        // Total time span shown = visible_candles * interval_minutes
+        let visible_candles = self.candles.len();
+        let total_minutes = visible_candles as i64 * self.interval_minutes;
+
+        let date_format = if total_minutes <= 60 {
+            // Less than 1 hour: show time with seconds
+            "%H:%M:%S"
+        } else if total_minutes <= 360 {
+            // Less than 6 hours: show time HH:MM
+            "%H:%M"
+        } else if total_minutes <= 1440 {
+            // Less than 1 day: show time
+            "%m/%d %H:%M"
+        } else if total_minutes <= 10080 {
+            // Less than 1 week: show date and time
+            "%m/%d %H:%M"
+        } else if total_minutes <= 43200 {
+            // Less than 30 days: show month/day
+            "%m/%d"
+        } else {
+            // More than 30 days: show month/day
+            "%Y-%m-%d"
+        };
+
         for i in 0..num_x_labels {
             let candle_idx = (i * step).min(self.candles.len() - 1);
             let x = chart_x + (candle_idx as f32 / self.candles.len() as f32) * chart_width;
             let y = chart_y + chart_height;
 
-            // Get the timestamp and format it
+            // Get the timestamp and format it adaptively
             let timestamp = self.candles[candle_idx].timestamp;
             let datetime = DateTime::from_timestamp(timestamp, 0)
                 .unwrap_or_else(|| DateTime::from_timestamp(0, 0).unwrap());
-            let date_string = datetime.format("%m/%d").to_string();
+            let date_string = datetime.format(date_format).to_string();
 
             // Draw X-axis label
             let x_text = Text {

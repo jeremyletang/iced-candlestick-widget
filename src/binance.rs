@@ -26,6 +26,18 @@ impl Interval {
         }
     }
 
+    pub fn to_minutes(&self) -> i64 {
+        match self {
+            Interval::OneMinute => 1,
+            Interval::FiveMinutes => 5,
+            Interval::FifteenMinutes => 15,
+            Interval::ThirtyMinutes => 30,
+            Interval::OneHour => 60,
+            Interval::FourHours => 240,
+            Interval::OneDay => 1440,
+        }
+    }
+
     pub fn all() -> Vec<Interval> {
         vec![
             Interval::OneMinute,
