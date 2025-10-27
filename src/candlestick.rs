@@ -61,6 +61,7 @@ impl CandlestickChart {
 pub struct ChartState {
     dragging: bool,
     last_x: f32,
+    cursor_position: Option<Point>,
 }
 
 impl canvas::Program<ChartMessage> for CandlestickChart {
@@ -96,6 +97,8 @@ impl canvas::Program<ChartMessage> for CandlestickChart {
                     (Status::Captured, None)
                 }
                 iced::mouse::Event::CursorMoved { .. } => {
+                    state.cursor_position = cursor.position();
+
                     if state.dragging {
                         if let Some(position) = cursor.position() {
                             let delta = position.x - state.last_x;
@@ -108,6 +111,10 @@ impl canvas::Program<ChartMessage> for CandlestickChart {
                         (Status::Ignored, None)
                     }
                 }
+                iced::mouse::Event::CursorLeft => {
+                    state.cursor_position = None;
+                    (Status::Ignored, None)
+                }
                 _ => (Status::Ignored, None),
             },
             _ => (Status::Ignored, None),
@@ -116,7 +123,7 @@ impl canvas::Program<ChartMessage> for CandlestickChart {
 
     fn draw(
         &self,
-        _state: &Self::State,
+        state: &Self::State,
         renderer: &iced::Renderer,
         _theme: &Theme,
         bounds: Rectangle,
@@ -306,6 +313,140 @@ impl canvas::Program<ChartMessage> for CandlestickChart {
             );
 
             frame.fill(&body, color);
+        }
+
+        // Draw crosshair and info box if cursor is present
+        if let Some(cursor_pos) = state.cursor_position {
+            // Only draw crosshair if cursor is within chart bounds
+            if cursor_pos.x >= chart_x && cursor_pos.x <= chart_x + chart_width
+                && cursor_pos.y >= chart_y && cursor_pos.y <= chart_y + chart_height
+            {
+                let crosshair_color = Color::from_rgba(0.8, 0.8, 0.8, 0.5);
+
+                // Draw vertical line
+                let vertical_line = Path::line(
+                    Point::new(cursor_pos.x, chart_y),
+                    Point::new(cursor_pos.x, chart_y + chart_height),
+                );
+                frame.stroke(
+                    &vertical_line,
+                    Stroke::default().with_width(1.0).with_color(crosshair_color),
+                );
+
+                // Draw horizontal line
+                let horizontal_line = Path::line(
+                    Point::new(chart_x, cursor_pos.y),
+                    Point::new(chart_x + chart_width, cursor_pos.y),
+                );
+                frame.stroke(
+                    &horizontal_line,
+                    Stroke::default().with_width(1.0).with_color(crosshair_color),
+                );
+
+                // Calculate which candle is under cursor
+                let candle_index = ((cursor_pos.x - chart_x) / candle_width) as usize;
+
+                if candle_index < self.candles.len() {
+                    let candle = &self.candles[candle_index];
+
+                    // Format timestamp
+                    let datetime = DateTime::from_timestamp(candle.timestamp, 0)
+                        .unwrap_or_else(|| DateTime::from_timestamp(0, 0).unwrap());
+                    let time_string = datetime.format("%Y-%m-%d %H:%M").to_string();
+
+                    // Create info box at top right
+                    let info_box_x = chart_x + chart_width - 250.0;
+                    let info_box_y = chart_y + 10.0;
+                    let info_box_width = 240.0;
+                    let info_box_height = 110.0;
+
+                    // Draw semi-transparent background
+                    let info_bg = Path::rectangle(
+                        Point::new(info_box_x, info_box_y),
+                        Size::new(info_box_width, info_box_height),
+                    );
+                    frame.fill(&info_bg, Color::from_rgba(0.0, 0.0, 0.0, 0.8));
+
+                    // Draw border
+                    frame.stroke(
+                        &info_bg,
+                        Stroke::default().with_width(1.0).with_color(Color::from_rgb(0.5, 0.5, 0.5)),
+                    );
+
+                    let text_color = Color::from_rgb(0.9, 0.9, 0.9);
+                    let text_size = 12.0;
+                    let line_height = 16.0;
+
+                    // Draw time
+                    let time_text = Text {
+                        content: format!("Time: {}", time_string),
+                        position: Point::new(info_box_x + 10.0, info_box_y + 10.0),
+                        color: text_color,
+                        size: text_size.into(),
+                        horizontal_alignment: Horizontal::Left,
+                        vertical_alignment: Vertical::Top,
+                        ..Default::default()
+                    };
+                    frame.fill_text(time_text);
+
+                    // Draw OHLC
+                    let open_text = Text {
+                        content: format!("O: {:.2}", candle.open),
+                        position: Point::new(info_box_x + 10.0, info_box_y + 10.0 + line_height),
+                        color: text_color,
+                        size: text_size.into(),
+                        horizontal_alignment: Horizontal::Left,
+                        vertical_alignment: Vertical::Top,
+                        ..Default::default()
+                    };
+                    frame.fill_text(open_text);
+
+                    let high_text = Text {
+                        content: format!("H: {:.2}", candle.high),
+                        position: Point::new(info_box_x + 10.0, info_box_y + 10.0 + line_height * 2.0),
+                        color: text_color,
+                        size: text_size.into(),
+                        horizontal_alignment: Horizontal::Left,
+                        vertical_alignment: Vertical::Top,
+                        ..Default::default()
+                    };
+                    frame.fill_text(high_text);
+
+                    let low_text = Text {
+                        content: format!("L: {:.2}", candle.low),
+                        position: Point::new(info_box_x + 10.0, info_box_y + 10.0 + line_height * 3.0),
+                        color: text_color,
+                        size: text_size.into(),
+                        horizontal_alignment: Horizontal::Left,
+                        vertical_alignment: Vertical::Top,
+                        ..Default::default()
+                    };
+                    frame.fill_text(low_text);
+
+                    let close_text = Text {
+                        content: format!("C: {:.2}", candle.close),
+                        position: Point::new(info_box_x + 10.0, info_box_y + 10.0 + line_height * 4.0),
+                        color: text_color,
+                        size: text_size.into(),
+                        horizontal_alignment: Horizontal::Left,
+                        vertical_alignment: Vertical::Top,
+                        ..Default::default()
+                    };
+                    frame.fill_text(close_text);
+
+                    // Draw volume
+                    let volume_text = Text {
+                        content: format!("Vol: {:.0}", candle.volume),
+                        position: Point::new(info_box_x + 10.0, info_box_y + 10.0 + line_height * 5.0),
+                        color: text_color,
+                        size: text_size.into(),
+                        horizontal_alignment: Horizontal::Left,
+                        vertical_alignment: Vertical::Top,
+                        ..Default::default()
+                    };
+                    frame.fill_text(volume_text);
+                }
+            }
         }
 
         vec![frame.into_geometry()]

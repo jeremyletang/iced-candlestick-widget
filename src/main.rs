@@ -26,8 +26,6 @@ enum Message {
     IntervalSelected(Interval),
     DataFetched(Result<Vec<Candle>, String>),
     RefreshData,
-    ZoomIn,
-    ZoomOut,
     ChartEvent(candlestick::ChartMessage),
 }
 
@@ -91,16 +89,6 @@ impl App {
                     Message::DataFetched,
                 )
             }
-            Message::ZoomIn => {
-                self.visible_candles = (self.visible_candles - 10).max(10);
-                self.update_chart();
-                Task::none()
-            }
-            Message::ZoomOut => {
-                self.visible_candles = (self.visible_candles + 10).min(self.candles.len());
-                self.update_chart();
-                Task::none()
-            }
             Message::ChartEvent(chart_msg) => {
                 match chart_msg {
                     candlestick::ChartMessage::Zoom(delta) => {
@@ -144,46 +132,45 @@ impl App {
     }
 
     fn view(&self) -> Element<Message> {
-        let interval_selector = row![
-            text("Interval: ").size(16),
-            pick_list(
-                Interval::all(),
-                Some(self.selected_interval),
-                Message::IntervalSelected,
-            )
-            .placeholder("Select interval"),
-            button("Refresh").on_press(Message::RefreshData),
-        ]
-        .spacing(10)
-        .padding(10);
-
-        let zoom_controls = row![
-            button("-").on_press(Message::ZoomOut),
-            text(format!("{}/{} candles", self.visible_candles, self.candles.len())).size(14),
-            button("+").on_press(Message::ZoomIn),
-        ]
-        .spacing(5)
-        .padding(10);
-
-        let status = if self.loading {
-            text("Loading...").size(16)
-        } else if let Some(ref error) = self.error {
-            text(format!("Error: {}", error)).size(16)
-        } else {
-            text("BTCUSDT").size(16)
-        };
-
-        let controls = row![interval_selector, zoom_controls, status]
-            .spacing(20)
+        if let Some(ref chart) = self.chart {
+            // Overlay controls on top of chart
+            let controls = row![
+                pick_list(
+                    Interval::all(),
+                    Some(self.selected_interval),
+                    Message::IntervalSelected,
+                )
+                .placeholder("Interval"),
+                button("↻").on_press(Message::RefreshData),
+            ]
+            .spacing(5)
             .padding(10);
 
-        let content = if let Some(ref chart) = self.chart {
-            column![controls, chart.view().map(Message::ChartEvent)]
-        } else {
-            column![controls, text("Loading chart...").size(20)]
-        };
+            let status = if self.loading {
+                Some(text("Loading...").size(14))
+            } else if let Some(ref error) = self.error {
+                Some(text(format!("Error: {}", error)).size(14))
+            } else {
+                None
+            };
 
-        container(content).into()
+            let overlay_content = if let Some(status_text) = status {
+                column![controls, status_text].spacing(5)
+            } else {
+                column![controls]
+            };
+
+            iced::widget::stack![
+                chart.view().map(Message::ChartEvent),
+                container(overlay_content)
+                    .padding(10)
+            ]
+            .into()
+        } else {
+            container(text("Loading chart...").size(20))
+                .center(iced::Length::Fill)
+                .into()
+        }
     }
 }
 
