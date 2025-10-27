@@ -1,8 +1,14 @@
-use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke, Text};
+use iced::widget::canvas::{self, Canvas, Event, Frame, Geometry, Path, Stroke, Text};
 use iced::{Color, Element, Point, Rectangle, Size, Theme};
-use iced::mouse::Cursor;
+use iced::mouse::{Cursor, ScrollDelta};
 use iced::alignment::{Horizontal, Vertical};
+use iced::event::Status;
 use chrono::DateTime;
+
+#[derive(Debug, Clone)]
+pub enum ChartMessage {
+    Zoom(f32),
+}
 
 /// Represents a single candlestick (OHLC data)
 #[derive(Debug, Clone, Copy)]
@@ -42,7 +48,7 @@ impl CandlestickChart {
         Self { candles }
     }
 
-    pub fn view<'a, Message: 'a>(&'a self) -> Element<'a, Message> {
+    pub fn view(&self) -> Element<'_, ChartMessage> {
         Canvas::new(self)
             .width(iced::Length::Fill)
             .height(iced::Length::Fill)
@@ -50,8 +56,27 @@ impl CandlestickChart {
     }
 }
 
-impl<Message> canvas::Program<Message> for CandlestickChart {
+impl canvas::Program<ChartMessage> for CandlestickChart {
     type State = ();
+
+    fn update(
+        &self,
+        _state: &mut Self::State,
+        event: Event,
+        _bounds: Rectangle,
+        _cursor: Cursor,
+    ) -> (Status, Option<ChartMessage>) {
+        match event {
+            Event::Mouse(iced::mouse::Event::WheelScrolled { delta }) => {
+                match delta {
+                    ScrollDelta::Lines { y, .. } | ScrollDelta::Pixels { y, .. } => {
+                        (Status::Captured, Some(ChartMessage::Zoom(y)))
+                    }
+                }
+            }
+            _ => (Status::Ignored, None),
+        }
+    }
 
     fn draw(
         &self,

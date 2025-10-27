@@ -13,9 +13,12 @@ fn main() -> iced::Result {
 
 struct App {
     chart: Option<CandlestickChart>,
+    candles: Vec<Candle>,
     selected_interval: Interval,
     loading: bool,
     error: Option<String>,
+    visible_candles: usize,
+    pan_offset: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -23,15 +26,22 @@ enum Message {
     IntervalSelected(Interval),
     DataFetched(Result<Vec<Candle>, String>),
     RefreshData,
+    ZoomIn,
+    ZoomOut,
+    Pan(i32),
+    ChartEvent(candlestick::ChartMessage),
 }
 
 impl App {
     fn new() -> (Self, Task<Message>) {
         let app = Self {
             chart: None,
+            candles: Vec::new(),
             selected_interval: Interval::default(),
             loading: false,
             error: None,
+            visible_candles: 100,
+            pan_offset: 0,
         };
 
         // Fetch initial data
@@ -60,7 +70,10 @@ impl App {
 
                 match result {
                     Ok(candles) => {
-                        self.chart = Some(CandlestickChart::new(candles));
+                        self.candles = candles;
+                        self.pan_offset = 0;
+                        self.visible_candles = self.visible_candles.min(self.candles.len());
+                        self.update_chart();
                         self.error = None;
                     }
                     Err(e) => {
@@ -79,7 +92,50 @@ impl App {
                     Message::DataFetched,
                 )
             }
+            Message::ZoomIn => {
+                self.visible_candles = (self.visible_candles - 10).max(10);
+                self.update_chart();
+                Task::none()
+            }
+            Message::ZoomOut => {
+                self.visible_candles = (self.visible_candles + 10).min(self.candles.len());
+                self.update_chart();
+                Task::none()
+            }
+            Message::Pan(delta) => {
+                let max_offset = self.candles.len().saturating_sub(self.visible_candles);
+                self.pan_offset = (self.pan_offset as i32 + delta)
+                    .max(0)
+                    .min(max_offset as i32) as usize;
+                self.update_chart();
+                Task::none()
+            }
+            Message::ChartEvent(chart_msg) => {
+                match chart_msg {
+                    candlestick::ChartMessage::Zoom(delta) => {
+                        if delta > 0.0 {
+                            self.visible_candles = (self.visible_candles - 5).max(10);
+                        } else {
+                            self.visible_candles = (self.visible_candles + 5).min(self.candles.len());
+                        }
+                        self.update_chart();
+                    }
+                }
+                Task::none()
+            }
         }
+    }
+
+    fn update_chart(&mut self) {
+        if self.candles.is_empty() {
+            return;
+        }
+
+        // Show most recent candles on the right (end of array)
+        let end = self.candles.len() - self.pan_offset;
+        let start = end.saturating_sub(self.visible_candles);
+        let visible = self.candles[start..end].to_vec();
+        self.chart = Some(CandlestickChart::new(visible));
     }
 
     fn view(&self) -> Element<Message> {
@@ -96,6 +152,16 @@ impl App {
         .spacing(10)
         .padding(10);
 
+        let zoom_controls = row![
+            button("-").on_press(Message::ZoomOut),
+            text(format!("{}/{} candles", self.visible_candles, self.candles.len())).size(14),
+            button("+").on_press(Message::ZoomIn),
+            button("◀").on_press(Message::Pan(10)),  // Left = go back in time (older)
+            button("▶").on_press(Message::Pan(-10)), // Right = go forward in time (newer)
+        ]
+        .spacing(5)
+        .padding(10);
+
         let status = if self.loading {
             text("Loading...").size(16)
         } else if let Some(ref error) = self.error {
@@ -104,12 +170,12 @@ impl App {
             text("BTCUSDT").size(16)
         };
 
-        let controls = row![interval_selector, status]
+        let controls = row![interval_selector, zoom_controls, status]
             .spacing(20)
             .padding(10);
 
         let content = if let Some(ref chart) = self.chart {
-            column![controls, chart.view()]
+            column![controls, chart.view().map(Message::ChartEvent)]
         } else {
             column![controls, text("Loading chart...").size(20)]
         };
