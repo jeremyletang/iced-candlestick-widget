@@ -8,6 +8,7 @@ use chrono::DateTime;
 #[derive(Debug, Clone)]
 pub enum ChartMessage {
     Zoom(f32),
+    Pan(f32), // Drag delta in pixels
 }
 
 /// Represents a single candlestick (OHLC data)
@@ -56,24 +57,59 @@ impl CandlestickChart {
     }
 }
 
+#[derive(Default)]
+pub struct ChartState {
+    dragging: bool,
+    last_x: f32,
+}
+
 impl canvas::Program<ChartMessage> for CandlestickChart {
-    type State = ();
+    type State = ChartState;
 
     fn update(
         &self,
-        _state: &mut Self::State,
+        state: &mut Self::State,
         event: Event,
         _bounds: Rectangle,
-        _cursor: Cursor,
+        cursor: Cursor,
     ) -> (Status, Option<ChartMessage>) {
         match event {
-            Event::Mouse(iced::mouse::Event::WheelScrolled { delta }) => {
-                match delta {
-                    ScrollDelta::Lines { y, .. } | ScrollDelta::Pixels { y, .. } => {
-                        (Status::Captured, Some(ChartMessage::Zoom(y)))
+            Event::Mouse(mouse_event) => match mouse_event {
+                iced::mouse::Event::WheelScrolled { delta } => {
+                    match delta {
+                        ScrollDelta::Lines { y, .. } | ScrollDelta::Pixels { y, .. } => {
+                            (Status::Captured, Some(ChartMessage::Zoom(y)))
+                        }
                     }
                 }
-            }
+                iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left) => {
+                    if let Some(position) = cursor.position() {
+                        state.dragging = true;
+                        state.last_x = position.x;
+                        (Status::Captured, None)
+                    } else {
+                        (Status::Ignored, None)
+                    }
+                }
+                iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left) => {
+                    state.dragging = false;
+                    (Status::Captured, None)
+                }
+                iced::mouse::Event::CursorMoved { .. } => {
+                    if state.dragging {
+                        if let Some(position) = cursor.position() {
+                            let delta = position.x - state.last_x;
+                            state.last_x = position.x;
+                            (Status::Captured, Some(ChartMessage::Pan(delta)))
+                        } else {
+                            (Status::Ignored, None)
+                        }
+                    } else {
+                        (Status::Ignored, None)
+                    }
+                }
+                _ => (Status::Ignored, None),
+            },
             _ => (Status::Ignored, None),
         }
     }

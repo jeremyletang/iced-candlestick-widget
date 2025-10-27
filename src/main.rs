@@ -28,7 +28,6 @@ enum Message {
     RefreshData,
     ZoomIn,
     ZoomOut,
-    Pan(i32),
     ChartEvent(candlestick::ChartMessage),
 }
 
@@ -102,14 +101,6 @@ impl App {
                 self.update_chart();
                 Task::none()
             }
-            Message::Pan(delta) => {
-                let max_offset = self.candles.len().saturating_sub(self.visible_candles);
-                self.pan_offset = (self.pan_offset as i32 + delta)
-                    .max(0)
-                    .min(max_offset as i32) as usize;
-                self.update_chart();
-                Task::none()
-            }
             Message::ChartEvent(chart_msg) => {
                 match chart_msg {
                     candlestick::ChartMessage::Zoom(delta) => {
@@ -118,6 +109,20 @@ impl App {
                         } else {
                             self.visible_candles = (self.visible_candles + 5).min(self.candles.len());
                         }
+                        self.update_chart();
+                    }
+                    candlestick::ChartMessage::Pan(pixel_delta) => {
+                        // Convert pixel delta to candle delta
+                        // Drag right (positive delta) = go back in time (increase offset, show older)
+                        // Drag left (negative delta) = go forward in time (decrease offset, show newer)
+                        let pixels_per_candle = 800.0 / self.visible_candles as f32;
+                        let sensitivity = 2.0; // Make it more responsive
+                        let candle_delta = (pixel_delta * sensitivity / pixels_per_candle) as i32;
+
+                        let max_offset = self.candles.len().saturating_sub(self.visible_candles);
+                        self.pan_offset = (self.pan_offset as i32 + candle_delta)
+                            .max(0)
+                            .min(max_offset as i32) as usize;
                         self.update_chart();
                     }
                 }
@@ -156,8 +161,6 @@ impl App {
             button("-").on_press(Message::ZoomOut),
             text(format!("{}/{} candles", self.visible_candles, self.candles.len())).size(14),
             button("+").on_press(Message::ZoomIn),
-            button("◀").on_press(Message::Pan(10)),  // Left = go back in time (older)
-            button("▶").on_press(Message::Pan(-10)), // Right = go forward in time (newer)
         ]
         .spacing(5)
         .padding(10);
